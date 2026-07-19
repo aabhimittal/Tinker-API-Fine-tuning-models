@@ -1,0 +1,28 @@
+# Supervised fine-tuning config for Qwen3-8B (fully open weights, Apache-2.0).
+# Consumed by scripts/run_sft.py (see docs/usage.md).
+base_model: Qwen/Qwen3-8B
+train_path: examples/data/sft_sample.jsonl
+eval_path: null
+
+lora:
+  rank: 32
+  alpha: 64
+  dropout: 0.0
+
+optim:
+  learning_rate: 1.0e-4
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  warmup_ratio: 0.03
+  lr_schedule: cosine
+  min_lr_ratio: 0.1
+
+epochs: 3
+batch_size: 8
+max_seq_len: 4096
+pack_sequences: true
+save_every_steps: 0
+eval_every_steps: 0
+seed: 0

@@ -1,0 +1,5 @@
+Explain gradient descent in one sentence.
+Write a short greeting for a new user.
+Give a one-line tip for writing clean code.
+Describe the color blue to someone who cannot see.
+What is 7 times 8? The answer is 56.

@@ -1,0 +1,5 @@
+{"messages": [{"role": "system", "content": "You are a concise assistant."}, {"role": "user", "content": "What is the capital of France?"}, {"role": "assistant", "content": "Paris."}]}
+{"messages": [{"role": "user", "content": "Summarize: The cat sat on the mat quietly."}, {"role": "assistant", "content": "A cat rested on a mat."}]}
+{"prompt": "Translate to French: good morning", "completion": "Bonjour."}
+{"prompt": "2 + 2 = ?", "completion": "4"}
+{"messages": [{"role": "user", "content": "Give me a haiku about the sea."}, {"role": "assistant", "content": "Endless blue horizon\nWaves whisper to the pale shore\nSalt drifts on the wind"}]}
