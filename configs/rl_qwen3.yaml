@@ -1,0 +1,23 @@
+# GRPO reinforcement-learning config for Qwen3-8B.
+base_model: Qwen/Qwen3-8B
+prompts_path: examples/data/rl_prompts.txt
+reward: numeric_match
+
+lora:
+  rank: 32
+  alpha: 64
+
+optim:
+  learning_rate: 5.0e-5
+  lr_schedule: constant
+  warmup_ratio: 0.0
+
+iterations: 100
+group_size: 8
+prompts_per_batch: 16
+max_new_tokens: 512
+temperature: 1.0
+top_p: 1.0
+kl_coef: 0.0
+advantage: grpo
+seed: 0
