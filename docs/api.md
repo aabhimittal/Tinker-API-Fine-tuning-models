@@ -28,7 +28,8 @@ Base URL: `http://localhost:8000`. Interactive docs at `/docs` (Swagger) and
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/v1/jobs/sft` | Start an SFT job. Returns `201` + job record. |
-| POST | `/v1/jobs/rl` | Start an RL job. |
+| POST | `/v1/jobs/rl` | Start an RL job. Set `"reward": "rm:<model>"` for RLHF. |
+| POST | `/v1/jobs/dpo` | Start a DPO / preference-optimization job. |
 | GET | `/v1/jobs` | List jobs. Optional `?status=` and `?limit=`. |
 | GET | `/v1/jobs/{id}` | Full job record incl. metrics history. |
 | GET | `/v1/jobs/{id}/metrics` | Metrics + progress. Optional `?tail=N`. |
@@ -56,6 +57,17 @@ Base URL: `http://localhost:8000`. Interactive docs at `/docs` (Swagger) and
   "reward": "numeric_match",
   "iterations": 100, "group_size": 8, "prompts_per_batch": 16,
   "advantage": "grpo", "kl_coef": 0.0
+}
+```
+
+### DPO request body
+
+```json
+{
+  "base_model": "thinkingmachines/Inkling",
+  "train_path": "examples/data/preferences_sample.jsonl",
+  "beta": 0.1, "loss_type": "sigmoid", "reference_free": false,
+  "epochs": 1, "batch_size": 4
 }
 ```
 

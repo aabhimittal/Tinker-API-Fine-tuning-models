@@ -2,9 +2,12 @@
 
 An extensive, production-shaped backend for fine-tuning **fully open-weight
 LLMs** with the [Tinker API](https://thinkingmachines.ai) (Thinking Machines
-Lab). LoRA supervised fine-tuning (SFT) and reinforcement learning (GRPO /
-REINFORCE) over models whose weights are all known upfront — **Qwen3**
-(Apache-2.0) as the default family, **Llama-3.x** supported.
+Lab). Supervised fine-tuning (SFT), reinforcement learning (GRPO / REINFORCE),
+**RLHF with a reward-model scorer**, and **DPO / preference training** — over
+models whose weights are all known upfront. Top-billed target is
+**Inkling** (`thinkingmachines/Inkling`), Tinker's own Apache-2.0 open-weights
+base model (975B MoE, 41B active, 1M context, multimodal); **Qwen3** and
+**Llama-3.x** are also supported.
 
 The whole stack — HTTP API, job manager, trainers, CLI — runs **offline by
 default** against an in-process simulator, then switches to the live Tinker SDK
@@ -25,11 +28,19 @@ FastAPI ──▶ JobManager ──▶ SFT / RL Trainers ──▶ TinkerBackend
   `sample` → `save_state`, exactly as the Tinker primitives are used.
 - **SFT with correct loss masking.** Chat templating supervises assistant tokens
   only; sequence packing cuts padding waste.
-- **RL / RLHF / RLVR.** GRPO group-relative advantages, pluggable reward
-  functions, importance-sampling loss, KL control.
+- **RL / RLHF / RLVR.** GRPO group-relative advantages, importance-sampling
+  loss, KL control, and a pluggable **reward-model scorer** (`reward: rm:<model>`)
+  that closes the RLHF loop: sample → score with a reward model → optimize.
+- **DPO / preference training.** Direct Preference Optimization on chosen/rejected
+  pairs against a frozen reference policy — sigmoid + IPO losses, cDPO label
+  smoothing, reference-free mode; reports implicit reward margin and accuracy.
+- **Metrics.** Per-step JSONL logging plus optional **Weights & Biases**
+  streaming (`TF_WANDB_PROJECT`).
+- **Live end-to-end.** `scripts/e2e_live.py` runs a real fine-tune + sample
+  against a live Tinker key, with a safe preflight when unconfigured.
 - **Async jobs.** Bounded thread pool, on-disk persistence, live metrics,
   cooperative cancel, restart reconciliation.
-- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 32 offline
+- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 52 offline
   tests, typed with Pydantic v2.
 
 ## Quick start
@@ -44,8 +55,12 @@ tinker-finetune inspect examples/data/sft_sample.jsonl   # validate a dataset
 # Supervised fine-tuning (dry-run simulator)
 tinker-finetune sft -m Qwen/Qwen3-8B -t examples/data/sft_sample.jsonl --epochs 3
 
-# RL fine-tuning (GRPO)
+# RL fine-tuning (GRPO), with a heuristic or a reward-model scorer (RLHF)
 tinker-finetune rl -m Qwen/Qwen3-8B -p examples/data/rl_prompts.txt --reward numeric_match
+tinker-finetune rl -m Qwen/Qwen3-8B -p examples/data/rl_prompts.txt --reward rm:thinkingmachines/Inkling-Small
+
+# DPO / preference training on Inkling
+tinker-finetune dpo -m thinkingmachines/Inkling -d examples/data/preferences_sample.jsonl
 
 # Serve the HTTP API
 make serve            # http://localhost:8000/docs
@@ -67,10 +82,12 @@ Nothing else changes — the same commands now route through the real API.
 src/tinker_finetune/
 ├── config.py            env + settings
 ├── models/              open-weight registry + shared schemas
-├── data/                tokenization · chat templating+masking · datasets · packing
+├── data/                tokenization · chat templating+masking · datasets · packing · preferences
 ├── tinker_client/       backend protocol · live SDK adapter · offline fake
-├── training/            SFT trainer · RL trainer · LR schedules · checkpointing
-├── rewards.py           pluggable RL reward registry
+├── training/            SFT · RL · DPO trainers · LR schedules · checkpointing
+├── rewards.py           pluggable RL reward registry (heuristics)
+├── reward_models.py     RLHF reward-model scorer + reward spec resolver
+├── metrics.py           JSONL + Weights & Biases metrics loggers
 ├── eval/                held-out loss · exact-match accuracy
 ├── jobs/                async job manager + runner
 ├── api/                 FastAPI app + routes (models/datasets/jobs/inference)
@@ -83,8 +100,9 @@ configs/   examples/   scripts/   tests/   docs/   docker/
 - [Setup](docs/setup.md) — install, env vars, going live.
 - [Architecture](docs/architecture.md) — layers and design decisions.
 - [Usage](docs/usage.md) — data format, SFT, RL, sampling, HTTP.
+- [RLHF, DPO, metrics & live runs](docs/rlhf_dpo.md) — preference optimization.
 - [API reference](docs/api.md) — every endpoint.
-- [Models](docs/models.md) — the open-weight registry.
+- [Models](docs/models.md) — the open-weight registry, incl. Inkling.
 
 ## Status & disclaimer
 

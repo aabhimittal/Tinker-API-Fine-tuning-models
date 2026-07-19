@@ -79,6 +79,23 @@ class LiveTinkerBackend:
             loss=total, per_datum_loss=per_datum, num_tokens=num_tokens
         )
 
+    def logprobs(self, batch: list[Datum]) -> list[float]:
+        # Forward-only pass. Tinker returns per-token logprobs; we sum over the
+        # supervised (weight>0) positions to get a per-datum sequence logprob.
+        data = [self._to_tinker_datum(d) for d in batch]
+        future = self._training.forward(data)  # forward-only, no backward
+        result = future.result()
+        per_token = getattr(result, "logprobs", None)
+        out: list[float] = []
+        if per_token is None:
+            # Fall back to forward_backward's reported loss if logprobs absent.
+            return [-self.forward_backward(batch).loss * d.num_supervised_tokens
+                    for d in batch]
+        for d, lps in zip(batch, per_token, strict=False):
+            total = sum(lp for lp, w in zip(lps, d.weights, strict=False) if w > 0)
+            out.append(float(total))
+        return out
+
     def optim_step(self, optim: OptimConfig, lr: float) -> OptimStepResult:
         t = self._tinker
         params = t.AdamParams(

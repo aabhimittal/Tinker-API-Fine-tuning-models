@@ -98,12 +98,46 @@ class RLConfig(BaseModel):
     seed: int = 0
 
 
+class PreferenceExample(BaseModel):
+    """A preference pair for DPO: a shared prompt with a chosen/rejected reply.
+
+    ``prompt`` is the conversation up to (but excluding) the final assistant
+    turn; ``chosen`` and ``rejected`` are competing assistant responses.
+    """
+
+    prompt: list[Message] = Field(min_length=1)
+    chosen: str
+    rejected: str
+
+
+class DPOConfig(BaseModel):
+    """Direct Preference Optimization run configuration.
+
+    DPO optimizes the policy directly on preference pairs against a frozen
+    reference policy — no separate reward model or sampling loop required.
+    """
+
+    base_model: str
+    lora: LoRAConfig = LoRAConfig()
+    optim: OptimConfig = OptimConfig(learning_rate=5e-6)
+    epochs: int = Field(default=1, ge=1, le=100)
+    batch_size: int = Field(default=4, ge=1)
+    max_seq_len: int = Field(default=4096, ge=1)
+    beta: float = Field(default=0.1, gt=0, description="DPO temperature (KL strength).")
+    label_smoothing: float = Field(default=0.0, ge=0.0, lt=0.5, description="cDPO smoothing.")
+    loss_type: Literal["sigmoid", "ipo"] = "sigmoid"
+    reference_free: bool = Field(default=False, description="Drop the reference term.")
+    save_every_steps: int = Field(default=0, ge=0)
+    seed: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Jobs / runs
 # ---------------------------------------------------------------------------
 class JobType(str, Enum):
     sft = "sft"
     rl = "rl"
+    dpo = "dpo"
 
 
 class JobStatus(str, Enum):
@@ -122,7 +156,9 @@ class TrainMetrics(BaseModel):
     grad_norm: float | None = None
     tokens: int | None = None
     reward_mean: float | None = None  # RL only
-    kl: float | None = None  # RL only
+    kl: float | None = None  # RL / DPO
+    reward_margin: float | None = None  # DPO: chosen - rejected implicit reward
+    reward_accuracy: float | None = None  # DPO: fraction with chosen > rejected
 
 
 class JobRecord(BaseModel):

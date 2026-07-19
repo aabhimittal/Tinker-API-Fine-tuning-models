@@ -1,0 +1,23 @@
+# RLHF on Inkling: GRPO with a reward-model scorer.
+# `reward: rm:<model>` routes rollouts through a reward model (see reward_models.py).
+base_model: thinkingmachines/Inkling
+prompts_path: examples/data/rl_prompts.txt
+reward: rm:thinkingmachines/Inkling-Small
+
+lora:
+  rank: 64
+  alpha: 128
+
+optim:
+  learning_rate: 4.0e-5
+  lr_schedule: constant
+
+iterations: 100
+group_size: 8
+prompts_per_batch: 16
+max_new_tokens: 512
+temperature: 1.0
+top_p: 1.0
+kl_coef: 0.05
+advantage: grpo
+seed: 0

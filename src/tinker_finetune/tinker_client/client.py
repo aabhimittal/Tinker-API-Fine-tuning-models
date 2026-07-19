@@ -83,6 +83,14 @@ class TinkerBackend(Protocol):
         self, batch: list[Datum], loss_fn: str = "cross_entropy"
     ) -> ForwardBackwardResult: ...
 
+    def logprobs(self, batch: list[Datum]) -> list[float]:
+        """Per-datum summed log-prob over supervised (weight>0) target tokens.
+
+        A forward-only pass (no gradient). Used by DPO and reward scoring to
+        compare how likely a policy is to produce a completion.
+        """
+        ...
+
     def optim_step(self, optim: OptimConfig, lr: float) -> OptimStepResult: ...
 
     def sample(

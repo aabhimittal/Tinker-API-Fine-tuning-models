@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     artifacts_dir: Path = Path("./runs")
     max_concurrent_jobs: int = 2
 
+    # --- Metrics / Weights & Biases ---
+    # Set wandb_project to enable W&B logging (requires `pip install wandb`).
+    wandb_project: str | None = None
+    wandb_entity: str | None = None
+    wandb_mode: str = "online"  # online | offline | disabled
+
     def ensure_dirs(self) -> None:
         """Create artifact directories if they do not yet exist."""
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)

@@ -50,6 +50,19 @@ class FakeTinkerBackend:
             loss=loss, per_datum_loss=per_datum, num_tokens=self._pending_tokens
         )
 
+    def logprobs(self, batch: list[Datum]) -> list[float]:
+        # Deterministic pseudo-logprobs: more supervised tokens => more negative,
+        # nudged by training progress so a "trained" policy looks more confident.
+        out: list[float] = []
+        for d in batch:
+            n = max(1, d.num_supervised_tokens)
+            base = -0.8 * n * math.exp(-self._step / 80.0) - 0.2 * n
+            # Seeded per-datum jitter keyed by token content for reproducibility.
+            key = (sum(d.target_tokens) + n) % 1000
+            jitter = (key / 1000.0 - 0.5) * 0.1 * n
+            out.append(base + jitter)
+        return out
+
     def optim_step(self, optim: OptimConfig, lr: float) -> OptimStepResult:
         self._step += 1
         grad_norm = max(0.01, optim.max_grad_norm * math.exp(-self._step / 60.0))
