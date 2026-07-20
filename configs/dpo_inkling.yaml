@@ -1,0 +1,22 @@
+# Direct Preference Optimization on Inkling — Tinker's own open-weight base
+# model (thinkingmachines/Inkling, Apache-2.0, 975B MoE / 41B active).
+base_model: thinkingmachines/Inkling
+train_path: examples/data/preferences_sample.jsonl
+
+lora:
+  rank: 64
+  alpha: 128
+
+optim:
+  learning_rate: 5.0e-6
+  lr_schedule: cosine
+  warmup_ratio: 0.1
+
+epochs: 1
+batch_size: 4
+max_seq_len: 4096
+beta: 0.1
+label_smoothing: 0.0
+loss_type: sigmoid
+reference_free: false
+seed: 0

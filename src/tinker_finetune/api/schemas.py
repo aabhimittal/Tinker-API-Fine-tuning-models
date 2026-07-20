@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from tinker_finetune.models.schemas import (
+    DPOConfig,
     JobRecord,
     LoRAConfig,
     OptimConfig,
@@ -88,6 +89,40 @@ class RLRequest(BaseModel):
             top_p=self.top_p,
             kl_coef=self.kl_coef,
             advantage=self.advantage,  # type: ignore[arg-type]
+            seed=self.seed,
+        )
+
+
+class DPORequest(BaseModel):
+    """Start a Direct Preference Optimization job."""
+
+    base_model: str
+    train_path: str = Field(description="Path to a JSONL preference dataset.")
+    lora: LoRAConfig = LoRAConfig()
+    optim: OptimConfig = OptimConfig(learning_rate=5e-6)
+    epochs: int = Field(default=1, ge=1, le=100)
+    batch_size: int = Field(default=4, ge=1)
+    max_seq_len: int = Field(default=4096, ge=1)
+    beta: float = Field(default=0.1, gt=0)
+    label_smoothing: float = Field(default=0.0, ge=0.0, lt=0.5)
+    loss_type: str = Field(default="sigmoid")
+    reference_free: bool = False
+    save_every_steps: int = Field(default=0, ge=0)
+    seed: int = 0
+
+    def to_config(self) -> DPOConfig:
+        return DPOConfig(
+            base_model=self.base_model,
+            lora=self.lora,
+            optim=self.optim,
+            epochs=self.epochs,
+            batch_size=self.batch_size,
+            max_seq_len=self.max_seq_len,
+            beta=self.beta,
+            label_smoothing=self.label_smoothing,
+            loss_type=self.loss_type,  # type: ignore[arg-type]
+            reference_free=self.reference_free,
+            save_every_steps=self.save_every_steps,
             seed=self.seed,
         )
 

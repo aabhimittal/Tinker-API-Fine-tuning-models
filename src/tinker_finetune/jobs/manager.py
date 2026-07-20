@@ -18,6 +18,7 @@ from functools import lru_cache
 from tinker_finetune.config import Settings, get_settings
 from tinker_finetune.logging_utils import get_logger
 from tinker_finetune.models.schemas import (
+    DPOConfig,
     JobRecord,
     JobStatus,
     JobType,
@@ -71,7 +72,7 @@ class JobManager:
             self._jobs[record.id] = record
 
     # -- creation -----------------------------------------------------------
-    def create(self, job_type: JobType, config: SFTConfig | RLConfig) -> JobRecord:
+    def create(self, job_type: JobType, config: SFTConfig | RLConfig | DPOConfig) -> JobRecord:
         job_id = uuid.uuid4().hex[:12]
         record = JobRecord(
             id=job_id,
@@ -87,7 +88,7 @@ class JobManager:
         log.info("Created %s job %s for %s", job_type.value, job_id, config.base_model)
         return record
 
-    def submit(self, job_type: JobType, config: SFTConfig | RLConfig,
+    def submit(self, job_type: JobType, config: SFTConfig | RLConfig | DPOConfig,
                prompts: list[str] | None = None,
                train_path: str | None = None,
                eval_path: str | None = None,

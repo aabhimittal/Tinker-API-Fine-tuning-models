@@ -31,10 +31,15 @@ class ModelInfo:
     recommended_lora_rank: int = 32
     recommended_lr: float = 1e-4
     tags: tuple[str, ...] = field(default_factory=tuple)
+    modalities: tuple[str, ...] = ("text",)  # input modalities the base model accepts
 
     @property
     def is_dense(self) -> bool:
         return not self.is_moe
+
+    @property
+    def is_multimodal(self) -> bool:
+        return tuple(self.modalities) != ("text",)
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +48,27 @@ class ModelInfo:
 _MODELS: dict[str, ModelInfo] = {
     m.name: m
     for m in [
+        # --- Thinking Machines Lab: Inkling (Apache-2.0) ---
+        # Inkling is Tinker's own open-weights base model (released 2026-07-15):
+        # a 975B-parameter sparse MoE with ~41B active params/token, a 1M-token
+        # context, and native multimodal input. This is the flagship the whole
+        # Tinker adaptation platform is built around, so it is this project's
+        # top-billed open-weight target. All weights are published on the Hub.
+        ModelInfo("thinkingmachines/Inkling", "inkling", 975.0, 41.0, 1_000_000,
+                  "Apache-2.0", is_moe=True, recommended_lora_rank=64,
+                  recommended_lr=3e-5, tags=("moe", "flagship", "multimodal"),
+                  modalities=("text", "image", "audio")),
+        # NVFP4-quantized checkpoint of the same weights (lower memory footprint).
+        ModelInfo("thinkingmachines/Inkling-NVFP4", "inkling", 975.0, 41.0, 1_000_000,
+                  "Apache-2.0", is_moe=True, recommended_lora_rank=64,
+                  recommended_lr=3e-5, tags=("moe", "quantized", "multimodal"),
+                  modalities=("text", "image", "audio")),
+        # Inkling-Small (preview): lighter recipe, ~12B active params. Verify the
+        # exact Hub id before a live run; kept here as the small Inkling option.
+        ModelInfo("thinkingmachines/Inkling-Small", "inkling", 100.0, 12.0, 1_000_000,
+                  "Apache-2.0", is_moe=True, recommended_lora_rank=32,
+                  recommended_lr=5e-5, tags=("moe", "small", "preview", "multimodal"),
+                  modalities=("text", "image", "audio")),
         # --- Qwen3 dense (Apache-2.0) ---
         ModelInfo("Qwen/Qwen3-0.6B", "qwen3", 0.6, 0.6, 32768, "Apache-2.0",
                   recommended_lora_rank=16, recommended_lr=2e-4, tags=("dense", "small")),

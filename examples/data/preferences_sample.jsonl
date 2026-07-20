@@ -1,0 +1,5 @@
+{"prompt": "Explain what a neural network is in one sentence.", "chosen": "A neural network is a layered set of interconnected units that learn to map inputs to outputs by adjusting connection weights from data.", "rejected": "It's a computer thing that does AI stuff."}
+{"prompt": [{"role": "user", "content": "Give me a tip for staying focused."}], "chosen": "Work in short, timed sprints with a single task and silence notifications so your attention has one clear target.", "rejected": "just focus lol"}
+{"prompt": "What is 12 times 12?", "chosen": "12 times 12 is 144.", "rejected": "Around 140 or so, roughly."}
+{"prompt": "Write a friendly greeting for a new user.", "chosen": "Welcome aboard! We're glad you're here — take a look around and reach out anytime you need a hand.", "rejected": "hi."}
+{"prompt": "Summarize the benefit of exercise.", "chosen": "Regular exercise improves cardiovascular health, mood, and energy while lowering the risk of chronic disease.", "rejected": "exercise is good because it is good for you and stuff."}

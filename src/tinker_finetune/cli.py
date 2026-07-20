@@ -121,7 +121,10 @@ def sft(
 def rl(
     base_model: str = typer.Option(..., "--base-model", "-m"),
     prompts: Path = typer.Option(..., "--prompts", "-p", help="One prompt per line."),
-    reward: str = typer.Option("length_target"),
+    reward: str = typer.Option(
+        "length_target",
+        help="Reward: a built-in name, or 'rm:<model>' for a reward-model scorer (RLHF).",
+    ),
     iterations: int = typer.Option(20),
     group_size: int = typer.Option(8),
     lora_rank: int = typer.Option(32),
@@ -129,7 +132,7 @@ def rl(
     """Run an RL fine-tuning job synchronously."""
     from tinker_finetune.data.tokenization import build_tokenizer
     from tinker_finetune.models.schemas import LoRAConfig, RLConfig
-    from tinker_finetune.rewards import get_reward_fn
+    from tinker_finetune.reward_models import resolve_reward
     from tinker_finetune.tinker_client.client import build_backend
     from tinker_finetune.training.rl_trainer import RLTrainer
 
@@ -142,8 +145,9 @@ def rl(
                             api_key=settings.tinker_api_key)
     tok = build_tokenizer(base_model, prefer_hf=not settings.dry_run)
     prompt_list = [ln.strip() for ln in Path(prompts).read_text().splitlines() if ln.strip()]
+    reward_fn = resolve_reward(reward, dry_run=settings.dry_run, api_key=settings.tinker_api_key)
     trainer = RLTrainer(
-        backend, tok, cfg, get_reward_fn(reward),
+        backend, tok, cfg, reward_fn,
         on_metrics=lambda m: console.print(
             f"iter {m.step:>4} | reward {m.reward_mean:.4f} | loss {m.loss:.4f}"
         ),
@@ -151,6 +155,49 @@ def rl(
     history = trainer.train(prompt_list)
     console.print(f"[green]Done.[/green] {len(history)} iterations, "
                   f"final reward {history[-1].reward_mean:.4f}")
+
+
+@app.command()
+def dpo(
+    base_model: str = typer.Option(..., "--base-model", "-m"),
+    prefs: Path = typer.Option(..., "--prefs", "-d", help="Preference JSONL (prompt/chosen/rejected)."),
+    epochs: int = typer.Option(1),
+    batch_size: int = typer.Option(4),
+    beta: float = typer.Option(0.1, help="DPO temperature / KL strength."),
+    loss_type: str = typer.Option("sigmoid", help="sigmoid | ipo"),
+    reference_free: bool = typer.Option(False),
+    lora_rank: int = typer.Option(32),
+):
+    """Run Direct Preference Optimization on a preference dataset."""
+    from tinker_finetune.data.preferences import load_preference_dataset
+    from tinker_finetune.data.tokenization import build_tokenizer
+    from tinker_finetune.models.schemas import DPOConfig, LoRAConfig
+    from tinker_finetune.tinker_client.client import build_backend
+    from tinker_finetune.training.dpo_trainer import DPOTrainer
+
+    settings = get_settings()
+    cfg = DPOConfig(
+        base_model=base_model, lora=LoRAConfig(rank=lora_rank),
+        epochs=epochs, batch_size=batch_size, beta=beta,
+        loss_type=loss_type,  # type: ignore[arg-type]
+        reference_free=reference_free,
+    )
+    backend = build_backend(base_model, cfg.lora, dry_run=settings.dry_run,
+                            api_key=settings.tinker_api_key)
+    reference = None if reference_free else build_backend(
+        base_model, cfg.lora, dry_run=settings.dry_run, api_key=settings.tinker_api_key)
+    tok = build_tokenizer(base_model, prefer_hf=not settings.dry_run)
+    trainer = DPOTrainer(
+        backend, reference, tok, cfg,
+        on_metrics=lambda m: console.print(
+            f"step {m.step:>4} | loss {m.loss:.4f} | margin {m.reward_margin:+.4f} "
+            f"| acc {m.reward_accuracy:.2f}"
+        ),
+    )
+    history = trainer.train(load_preference_dataset(prefs))
+    console.print(f"[green]Done.[/green] {len(history)} steps, "
+                  f"final margin {history[-1].reward_margin:+.4f}, "
+                  f"acc {history[-1].reward_accuracy:.2f}")
 
 
 @app.command()

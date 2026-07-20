@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from tinker_finetune.api.schemas import (
+    DPORequest,
     JobCreatedResponse,
     RLRequest,
     SFTRequest,
@@ -45,6 +46,18 @@ def create_rl_job(req: RLRequest) -> JobCreatedResponse:
         req.to_config(),
         prompts=req.prompts,
         reward=req.reward,
+    )
+    return JobCreatedResponse(job=record)
+
+
+@router.post("/dpo", response_model=JobCreatedResponse, status_code=201)
+def create_dpo_job(req: DPORequest) -> JobCreatedResponse:
+    _validate_model(req.base_model)
+    manager = get_job_manager()
+    record = manager.submit(
+        JobType.dpo,
+        req.to_config(),
+        train_path=req.train_path,
     )
     return JobCreatedResponse(job=record)
 

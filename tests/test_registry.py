@@ -27,6 +27,23 @@ def test_filter_by_family():
     assert all(m.family == "qwen3" for m in qwen)
 
 
+def test_inkling_is_registered_as_open_weight_flagship():
+    m = get_model("thinkingmachines/Inkling")
+    assert m.family == "inkling"
+    assert m.license == "Apache-2.0"
+    assert m.is_moe
+    assert m.active_params_b < m.params_b  # 41B active of 975B
+    assert m.context_length == 1_000_000
+    assert m.is_multimodal
+    assert "flagship" in m.tags
+
+
+def test_inkling_family_variants_present():
+    names = {m.name for m in list_models("inkling")}
+    assert {"thinkingmachines/Inkling", "thinkingmachines/Inkling-NVFP4",
+            "thinkingmachines/Inkling-Small"} <= names
+
+
 def test_unknown_model_raises_with_suggestions():
     assert not is_supported("acme/closed-model")
     with pytest.raises(UnknownModelError) as exc:
