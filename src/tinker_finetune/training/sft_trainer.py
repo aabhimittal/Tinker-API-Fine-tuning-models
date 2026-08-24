@@ -16,12 +16,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from tinker_finetune.budget import BudgetTracker
 from tinker_finetune.data.datasets import iter_batches
 from tinker_finetune.data.tokenization import Tokenizer
 from tinker_finetune.logging_utils import get_logger
 from tinker_finetune.models.schemas import ChatExample, SFTConfig, TrainMetrics
 from tinker_finetune.tinker_client.client import TinkerBackend
 from tinker_finetune.training.checkpoint import CheckpointManager
+from tinker_finetune.training.guards import TrainingGuards
 from tinker_finetune.training.optim import lr_at_step
 
 log = get_logger(__name__)
@@ -39,12 +41,16 @@ class SFTTrainer:
         checkpoints: CheckpointManager | None = None,
         on_metrics: MetricsCallback | None = None,
         should_stop: Callable[[], bool] | None = None,
+        guards: TrainingGuards | None = None,
+        budget: BudgetTracker | None = None,
     ) -> None:
         self.backend = backend
         self.tokenizer = tokenizer
         self.config = config
         self.checkpoints = checkpoints
         self.on_metrics = on_metrics
+        self.guards = guards
+        self.budget = budget
         self._should_stop = should_stop or (lambda: False)
 
     def _emit(self, m: TrainMetrics) -> None:
@@ -105,8 +111,26 @@ class SFTTrainer:
                 history.append(metrics)
                 self._emit(metrics)
 
+                if self.budget is not None:
+                    self.budget.record(train_tokens=fb.num_tokens, steps=1)
+
+                if self.guards is not None:
+                    decision = self.guards.observe_train(loss=fb.loss, grad_norm=opt.grad_norm)
+                    if decision.stop:
+                        log.warning("Halting SFT at step %d: %s", step, decision.reason)
+                        if self.checkpoints:
+                            self.checkpoints.save(self.backend, step, metrics=metrics.model_dump())
+                        return history
+
                 if cfg.eval_every_steps and eval_examples and step % cfg.eval_every_steps == 0:
-                    self._run_eval(eval_examples, step, history)
+                    eval_loss = self._run_eval(eval_examples, step, history)
+                    if eval_loss is not None and self.guards is not None:
+                        decision = self.guards.observe_eval(eval_loss, step=step)
+                        if decision.stop:
+                            log.info("Early stop at step %d: %s", step, decision.reason)
+                            if self.checkpoints:
+                                self.checkpoints.save(self.backend, step, metrics=metrics.model_dump())
+                            return history
 
                 if (
                     self.checkpoints
@@ -124,14 +148,15 @@ class SFTTrainer:
 
     def _run_eval(
         self, eval_examples: list[ChatExample], step: int, history: list[TrainMetrics]
-    ) -> None:
+    ) -> float | None:
         # Lightweight held-out loss via forward_backward's reported loss (no
         # optimizer step). Kept import-local to avoid a cycle.
         batches = self._prepare_batches(eval_examples)
         if not batches:
-            return
+            return None
         losses = [self.backend.forward_backward(b).loss for b in batches]
         eval_loss = sum(losses) / len(losses)
         m = TrainMetrics(step=step, epoch=history[-1].epoch, loss=round(eval_loss, 6))
         log.info("[eval] step=%d held-out loss=%.4f", step, eval_loss)
         self._emit(m)
+        return eval_loss

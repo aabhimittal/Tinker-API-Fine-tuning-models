@@ -146,6 +146,22 @@ class SampleResponse(BaseModel):
     stop_reason: str
 
 
+class ValidationFinding(BaseModel):
+    code: str
+    severity: str
+    message: str
+    count: int
+    examples: list[int] = Field(default_factory=list)
+
+
+class ValidationReportResponse(BaseModel):
+    path: str | None = None
+    num_examples: int
+    ok: bool
+    findings: list[ValidationFinding]
+    stats: dict
+
+
 class DatasetStats(BaseModel):
     path: str
     num_examples: int

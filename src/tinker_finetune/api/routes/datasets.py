@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from tinker_finetune.api.schemas import DatasetStats
+from tinker_finetune.api.schemas import DatasetStats, ValidationReportResponse
 from tinker_finetune.config import get_settings
 from tinker_finetune.data.datasets import load_chat_dataset
 from tinker_finetune.data.templating import build_supervised_datum
 from tinker_finetune.data.tokenization import build_tokenizer
+from tinker_finetune.data.validation import validate_dataset
 
 router = APIRouter(prefix="/v1/datasets", tags=["datasets"])
 
@@ -45,3 +46,36 @@ def inspect(path: str, base_model: str | None = None) -> DatasetStats:
         avg_assistant_tokens=round(sum(assistant_tokens) / n, 2),
         max_tokens=max_tokens,
     )
+
+
+@router.get("/validate", response_model=ValidationReportResponse)
+def validate(
+    path: str,
+    base_model: str | None = None,
+    eval_path: str | None = None,
+    max_seq_len: int | None = None,
+) -> ValidationReportResponse:
+    """Lint a dataset before spending a training budget on it.
+
+    Reports PII, exact/near duplicates, label conflicts, train/eval
+    contamination, silent truncation and unicode hazards. A dataset with
+    ``ok=false`` has at least one error-severity finding and should not be
+    submitted as-is.
+    """
+    settings = get_settings()
+    try:
+        examples = load_chat_dataset(path)
+        evals = load_chat_dataset(eval_path) if eval_path else None
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    model = base_model or settings.default_base_model
+    report = validate_dataset(
+        examples,
+        path=path,
+        tokenizer=build_tokenizer(model, prefer_hf=not settings.dry_run),
+        base_model=model,
+        max_seq_len=max_seq_len,
+        eval_examples=evals,
+    )
+    return ValidationReportResponse(**report.to_dict())

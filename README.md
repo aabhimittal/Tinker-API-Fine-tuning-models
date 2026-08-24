@@ -34,13 +34,29 @@ FastAPI ──▶ JobManager ──▶ SFT / RL Trainers ──▶ TinkerBackend
 - **DPO / preference training.** Direct Preference Optimization on chosen/rejected
   pairs against a frozen reference policy — sigmoid + IPO losses, cDPO label
   smoothing, reference-free mode; reports implicit reward margin and accuracy.
+- **Dataset validation that gates a run.** `tinker-finetune validate` lints a
+  corpus for PII/secrets (Luhn-checked cards, cloud keys, private keys),
+  exact/near duplicates via a deterministic MinHash-LSH index, label conflicts,
+  train/eval contamination, prompt-destroying truncation, and unicode hazards
+  (bidi overrides, lone surrogates, zero-width joiners) — with `--redact-to`
+  and a CI-friendly `--fail-on` gate. See [docs/hardening.md](docs/hardening.md).
+- **Fault tolerance.** Backend calls compose a client-side token-bucket rate
+  limiter, a circuit breaker, and exponential backoff with full jitter that
+  honours `Retry-After` — and deliberately never replays a partially applied
+  `optim_step`.
+- **Budget ceilings.** Token/step/USD accounting with MoE-aware pricing (active
+  params, not total), one-shot warnings, and a preflight that rejects a job
+  before its first step rather than after its tenth hour.
+- **Training guards.** NaN/Inf detection, gradient-explosion limits, loss-spike
+  and divergence trend detection, empty-loss-mask detection, and patience-based
+  early stopping wired into the SFT loop.
 - **Metrics.** Per-step JSONL logging plus optional **Weights & Biases**
   streaming (`TF_WANDB_PROJECT`).
 - **Live end-to-end.** `scripts/e2e_live.py` runs a real fine-tune + sample
   against a live Tinker key, with a safe preflight when unconfigured.
 - **Async jobs.** Bounded thread pool, on-disk persistence, live metrics,
   cooperative cancel, restart reconciliation.
-- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 52 offline
+- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 183 offline
   tests, typed with Pydantic v2.
 
 ## Quick start
@@ -51,6 +67,9 @@ make test                        # 32 tests, no credentials needed
 
 tinker-finetune models                                   # list open-weight models
 tinker-finetune inspect examples/data/sft_sample.jsonl   # validate a dataset
+
+# Lint the dataset before spending anything on it
+tinker-finetune validate data/train.jsonl --eval data/eval.jsonl --fail-on warning
 
 # Supervised fine-tuning (dry-run simulator)
 tinker-finetune sft -m Qwen/Qwen3-8B -t examples/data/sft_sample.jsonl --epochs 3
@@ -82,9 +101,11 @@ Nothing else changes — the same commands now route through the real API.
 src/tinker_finetune/
 ├── config.py            env + settings
 ├── models/              open-weight registry + shared schemas
-├── data/                tokenization · chat templating+masking · datasets · packing · preferences
+├── data/                tokenization · templating+masking · datasets · packing · preferences · validation
 ├── tinker_client/       backend protocol · live SDK adapter · offline fake
-├── training/            SFT · RL · DPO trainers · LR schedules · checkpointing
+├── training/            SFT · RL · DPO trainers · LR schedules · checkpointing · guards
+├── budget.py            token/step/USD accounting, MoE-aware pricing, ceilings
+├── resilience.py        retry · circuit breaker · rate limiter · resilient backend
 ├── rewards.py           pluggable RL reward registry (heuristics)
 ├── reward_models.py     RLHF reward-model scorer + reward spec resolver
 ├── metrics.py           JSONL + Weights & Biases metrics loggers
@@ -103,6 +124,7 @@ configs/   examples/   scripts/   tests/   docs/   docker/
 - [RLHF, DPO, metrics & live runs](docs/rlhf_dpo.md) — preference optimization.
 - [API reference](docs/api.md) — every endpoint.
 - [Models](docs/models.md) — the open-weight registry, incl. Inkling.
+- [Hardening](docs/hardening.md) — dataset validation, resilience, budgets, guards.
 
 ## Status & disclaimer
 
