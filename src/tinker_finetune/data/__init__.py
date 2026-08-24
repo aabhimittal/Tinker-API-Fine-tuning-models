@@ -5,6 +5,14 @@ from tinker_finetune.data.datasets import (
     load_chat_dataset,
     pack_datums,
 )
+from tinker_finetune.data.drift import DriftReport, compare_datasets
+from tinker_finetune.data.sharding import (
+    Cursor,
+    MixtureSampler,
+    MixtureSource,
+    ShardedStream,
+    ShardSpec,
+)
 from tinker_finetune.data.templating import build_supervised_datum, render_chat
 from tinker_finetune.data.tokenization import Tokenizer, build_tokenizer
 
@@ -16,4 +24,11 @@ __all__ = [
     "load_chat_dataset",
     "iter_batches",
     "pack_datums",
+    "ShardSpec",
+    "ShardedStream",
+    "Cursor",
+    "MixtureSource",
+    "MixtureSampler",
+    "compare_datasets",
+    "DriftReport",
 ]

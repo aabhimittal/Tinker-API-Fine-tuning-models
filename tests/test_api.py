@@ -137,3 +137,48 @@ def test_sft_job_rejects_closed_model(client, sample_dataset):
         "train_path": sample_dataset,
     })
     assert r.status_code == 400
+
+
+def test_dataset_validate_endpoint_reports_findings(client, tmp_path):
+    dirty = tmp_path / "dirty.jsonl"
+    dirty.write_text(
+        '{"prompt": "contact", "completion": "reach me at ops@example.com"}\n'
+        '{"prompt": "contact", "completion": "reach me at ops@example.com"}\n'
+    )
+    r = client.get("/v1/datasets/validate", params={"path": str(dirty)})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    codes = {f["code"] for f in body["findings"]}
+    assert "pii_detected" in codes and "exact_duplicates" in codes
+    assert body["stats"]["duplicate_rate"] > 0
+
+
+def test_dataset_validate_detects_eval_contamination(client, tmp_path):
+    train = tmp_path / "train.jsonl"
+    train.write_text('{"prompt": "capital of france", "completion": "paris"}\n')
+    evals = tmp_path / "eval.jsonl"
+    evals.write_text('{"prompt": "capital of france", "completion": "paris"}\n')
+    r = client.get(
+        "/v1/datasets/validate", params={"path": str(train), "eval_path": str(evals)}
+    )
+    assert r.status_code == 200
+    assert "eval_contamination" in {f["code"] for f in r.json()["findings"]}
+
+
+def test_dataset_validate_missing_file_is_a_400(client, tmp_path):
+    r = client.get("/v1/datasets/validate", params={"path": str(tmp_path / "nope.jsonl")})
+    assert r.status_code == 400
+
+
+def test_dataset_validate_clean_dataset_passes(client, tmp_path):
+    clean = tmp_path / "clean.jsonl"
+    clean.write_text(
+        "".join(
+            f'{{"prompt": "question {i} about widgets", "completion": "answer {i}"}}\n'
+            for i in range(12)
+        )
+    )
+    body = client.get("/v1/datasets/validate", params={"path": str(clean)}).json()
+    assert body["ok"] is True
+    assert body["num_examples"] == 12

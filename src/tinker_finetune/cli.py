@@ -77,6 +77,118 @@ def inspect(
 
 
 @app.command()
+def validate(
+    dataset: Path = typer.Argument(..., help="Path to a JSONL dataset."),
+    base_model: str | None = typer.Option(None, help="Check lengths against this model's context window."),
+    eval_dataset: Path | None = typer.Option(None, "--eval", help="Check for train/eval contamination."),
+    max_seq_len: int | None = typer.Option(None, help="Flag examples truncated at this length."),
+    fail_on: str = typer.Option("error", help="Exit non-zero at this severity or above: info|warning|error."),
+    redact_to: Path | None = typer.Option(None, help="Write a PII-redacted copy of the dataset here."),
+    json_out: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+):
+    """Lint a dataset for PII, duplicates, contamination and silent truncation."""
+    import json as _json
+
+    from tinker_finetune.data.datasets import load_chat_dataset
+    from tinker_finetune.data.tokenization import build_tokenizer
+    from tinker_finetune.data.validation import (
+        DatasetValidationError,
+        Severity,
+        redact_examples,
+        validate_dataset,
+    )
+
+    settings = get_settings()
+    model = base_model or settings.default_base_model
+    examples = load_chat_dataset(dataset)
+    evals = load_chat_dataset(eval_dataset) if eval_dataset else None
+    report = validate_dataset(
+        examples,
+        path=dataset,
+        tokenizer=build_tokenizer(model, prefer_hf=not settings.dry_run),
+        base_model=model,
+        max_seq_len=max_seq_len,
+        eval_examples=evals,
+    )
+
+    if json_out:
+        console.print_json(_json.dumps(report.to_dict()))
+    else:
+        table = Table(title=f"Validation: {dataset}")
+        table.add_column("severity")
+        table.add_column("code")
+        table.add_column("count", justify="right")
+        table.add_column("detail")
+        for f in report.findings:
+            colour = {"error": "red", "warning": "yellow", "info": "cyan"}[f.severity.value]
+            table.add_row(f"[{colour}]{f.severity.value}[/{colour}]", f.code, str(f.count), f.message)
+        console.print(table)
+        console.print(report.stats)
+
+    if redact_to:
+        cleaned, counts = redact_examples(examples)
+        with open(redact_to, "w", encoding="utf-8") as fh:
+            for ex in cleaned:
+                fh.write(_json.dumps({"messages": [m.model_dump(mode="json") for m in ex.messages]}) + "\n")
+        console.print(f"Wrote redacted dataset to {redact_to} ({sum(counts.values())} redactions).")
+
+    try:
+        report.raise_for_severity(Severity(fail_on))
+    except DatasetValidationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def drift(
+    baseline: Path = typer.Argument(..., help="The corpus the model was tuned on (JSONL)."),
+    candidate: Path = typer.Argument(..., help="The refreshed corpus to compare against it (JSONL)."),
+    bins: int = typer.Option(10, help="Quantile bins per numeric feature."),
+    top_k: int = typer.Option(50, help="Vocabulary/prefix terms compared before 'other'."),
+    fail_on: str = typer.Option("error", help="Exit non-zero at this severity or above: info|warning|error."),
+    json_out: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+):
+    """Compare two corpora for distribution drift before retraining on the new one."""
+    import json as _json
+
+    from tinker_finetune.data.datasets import load_chat_dataset
+    from tinker_finetune.data.drift import compare_datasets
+    from tinker_finetune.data.validation import Severity
+
+    report = compare_datasets(
+        load_chat_dataset(baseline),
+        load_chat_dataset(candidate),
+        num_bins=bins,
+        top_k=top_k,
+    )
+
+    if json_out:
+        console.print_json(_json.dumps(report.to_dict()))
+    else:
+        table = Table(title=f"Drift: {baseline} -> {candidate}")
+        for column in ("severity", "feature", "psi", "jsd", "ks", "detail"):
+            table.add_column(column, justify="right" if column in ("psi", "jsd", "ks") else "left")
+        for f in report.features:
+            colour = {"error": "red", "warning": "yellow", "info": "cyan"}[f.severity.value]
+            table.add_row(
+                f"[{colour}]{f.severity.value}[/{colour}]",
+                f.feature,
+                f"{f.psi:.3f}",
+                f"{f.jsd:.3f}",
+                "-" if f.ks is None else f"{f.ks:.3f}",
+                f.detail,
+            )
+        console.print(table)
+        for note in report.notes:
+            console.print(f"[yellow]note[/yellow] {note}")
+
+    order = {Severity.info: 0, Severity.warning: 1, Severity.error: 2}
+    if order[report.severity] >= order[Severity(fail_on)]:
+        console.print(f"[red]drift {report.severity.value} >= --fail-on {fail_on}[/red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def sft(
     base_model: str = typer.Option(..., "--base-model", "-m"),
     train: Path = typer.Option(..., "--train", "-t", help="Train JSONL path."),

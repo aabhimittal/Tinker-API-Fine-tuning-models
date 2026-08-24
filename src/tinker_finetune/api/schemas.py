@@ -146,6 +146,45 @@ class SampleResponse(BaseModel):
     stop_reason: str
 
 
+class ValidationFinding(BaseModel):
+    code: str
+    severity: str
+    message: str
+    count: int
+    examples: list[int] = Field(default_factory=list)
+
+
+class ValidationReportResponse(BaseModel):
+    path: str | None = None
+    num_examples: int
+    ok: bool
+    findings: list[ValidationFinding]
+    stats: dict
+
+
+class FeatureDriftResponse(BaseModel):
+    feature: str
+    psi: float
+    jsd: float
+    ks: float | None = None
+    severity: str
+    detail: str = ""
+    baseline: dict = Field(default_factory=dict)
+    candidate: dict = Field(default_factory=dict)
+
+
+class DriftReportResponse(BaseModel):
+    severity: str
+    baseline_rows: int
+    candidate_rows: int
+    notes: list[str] = Field(default_factory=list)
+    features: list[FeatureDriftResponse]
+
+    @property
+    def ok(self) -> bool:
+        return self.severity != "error"
+
+
 class DatasetStats(BaseModel):
     path: str
     num_examples: int
