@@ -11,6 +11,7 @@ from pathlib import Path
 
 from tinker_finetune.logging_utils import get_logger
 from tinker_finetune.tinker_client.client import TinkerBackend
+from tinker_finetune.training.retention import RetentionPlan, RetentionPolicy, apply_retention
 
 log = get_logger(__name__)
 
@@ -18,10 +19,17 @@ log = get_logger(__name__)
 class CheckpointManager:
     """Writes and tracks checkpoints for a single run under ``root/<job_id>``."""
 
-    def __init__(self, root: str | Path, job_id: str) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        job_id: str,
+        *,
+        retention: RetentionPolicy | None = None,
+    ) -> None:
         self.dir = Path(root) / job_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self.dir / "checkpoints.json"
+        self.retention = retention
 
     def _load_index(self) -> list[dict]:
         if self._index_path.exists():
@@ -36,7 +44,15 @@ class CheckpointManager:
         index.append({"step": step, "path": saved, "metrics": metrics or {}})
         self._index_path.write_text(json.dumps(index, indent=2))
         log.info("Saved checkpoint at step %d -> %s", step, saved)
+        self.enforce_retention()
         return saved
+
+    def enforce_retention(self, policy: RetentionPolicy | None = None) -> RetentionPlan | None:
+        """Garbage-collect old checkpoints; a disk-full run is a lost run."""
+        policy = policy or self.retention
+        if policy is None:
+            return None
+        return apply_retention(self._index_path, policy)
 
     def latest(self) -> dict | None:
         index = self._load_index()

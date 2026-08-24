@@ -50,13 +50,26 @@ FastAPI ──▶ JobManager ──▶ SFT / RL Trainers ──▶ TinkerBackend
 - **Training guards.** NaN/Inf detection, gradient-explosion limits, loss-spike
   and divergence trend detection, empty-loss-mask detection, and patience-based
   early stopping wired into the SFT loop.
+- **Deterministic sharding & resume.** Rendezvous-hashed virtual buckets keep a
+  fleet resize from reshuffling the corpus (`W → W+1` moves ~`1/(W+1)` of it),
+  epoch order is derived from `(seed, epoch)` so no shuffle state is
+  checkpointed, and a resume cursor that was written under a different
+  `world_size` is *reported*, never silently misapplied. Weighted, temperature-
+  scaled corpus mixtures with explicit exhaustion policies.
+- **Checkpoint retention.** Keep-last ∪ keep-best ∪ keep-every ∪ min-age, with
+  an atomic manifest rewrite, dry-run previews, and refusal to delete the last
+  checkpoint — a disk-full run is a lost run.
+- **Distribution drift.** `tinker-finetune drift old.jsonl new.jsonl` scores PSI,
+  Jensen-Shannon and KS over length, structure, vocabulary and answer-prefix
+  features, catching the style collapse ("Sure! Here's…") that length statistics
+  miss.
 - **Metrics.** Per-step JSONL logging plus optional **Weights & Biases**
   streaming (`TF_WANDB_PROJECT`).
 - **Live end-to-end.** `scripts/e2e_live.py` runs a real fine-tune + sample
   against a live Tinker key, with a safe preflight when unconfigured.
 - **Async jobs.** Bounded thread pool, on-disk persistence, live metrics,
   cooperative cancel, restart reconciliation.
-- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 183 offline
+- **Batteries included.** CLI, Docker, Makefile, GitHub Actions CI, 300+ offline
   tests, typed with Pydantic v2.
 
 ## Quick start
@@ -101,9 +114,9 @@ Nothing else changes — the same commands now route through the real API.
 src/tinker_finetune/
 ├── config.py            env + settings
 ├── models/              open-weight registry + shared schemas
-├── data/                tokenization · templating+masking · datasets · packing · preferences · validation
+├── data/                tokenization · templating+masking · datasets · packing · preferences · validation · sharding · drift
 ├── tinker_client/       backend protocol · live SDK adapter · offline fake
-├── training/            SFT · RL · DPO trainers · LR schedules · checkpointing · guards
+├── training/            SFT · RL · DPO trainers · LR schedules · checkpointing · guards · retention
 ├── budget.py            token/step/USD accounting, MoE-aware pricing, ceilings
 ├── resilience.py        retry · circuit breaker · rate limiter · resilient backend
 ├── rewards.py           pluggable RL reward registry (heuristics)
@@ -124,7 +137,7 @@ configs/   examples/   scripts/   tests/   docs/   docker/
 - [RLHF, DPO, metrics & live runs](docs/rlhf_dpo.md) — preference optimization.
 - [API reference](docs/api.md) — every endpoint.
 - [Models](docs/models.md) — the open-weight registry, incl. Inkling.
-- [Hardening](docs/hardening.md) — dataset validation, resilience, budgets, guards.
+- [Hardening](docs/hardening.md) — validation, resilience, budgets, guards, sharding, retention, drift.
 
 ## Status & disclaimer
 

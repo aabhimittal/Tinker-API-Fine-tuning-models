@@ -120,3 +120,90 @@ SFTTrainer(..., guards=guards).train(train, eval_examples=held_out)
 When a guard trips mid-run the SFT trainer checkpoints, logs the reason, and
 returns the history collected so far; `guards.raise_if_tripped()` converts that
 into a hard failure for callers that prefer one.
+
+## 5. Deterministic sharding & resumable streams (`data/sharding.py`)
+
+Data-plane failures are the quiet kind: a resumed run that re-reads rows it
+already trained on, or a fleet resize that shuffles every worker's slice.
+
+```python
+from tinker_finetune.data import Cursor, ShardSpec, ShardedStream
+
+spec = ShardSpec(rank=RANK, world_size=WORLD, num_buckets=1024, seed=17)
+stream = ShardedStream(rows, spec, key_fn=lambda r: r["id"], seed=17, max_epochs=3)
+
+cursor = Cursor.from_dict(json.loads(state)) if state else None
+for row, cursor in stream.iter_from(cursor):
+    train_on(row)
+    checkpoint(cursor.to_dict())      # written *after* the row: at-least-once resume
+```
+
+| Property | Why it matters |
+| --- | --- |
+| Rows are placed by `blake2b` hash, never `hash()` | `hash()` is salted per process — modulo sharding on it silently reassigns rows between workers on the same run. |
+| Rows → 1024 virtual buckets → ranks by rendezvous (HRW) hashing | Growing `W → W+1` moves ≈ `1/(W+1)` of the corpus instead of nearly all of it (`tests/test_sharding.py` asserts < 40% for 4 → 5). |
+| Placement keys on `key_fn`, not row content | Editing an example's text does not move it to another shard, so per-shard caches survive a corpus refresh. |
+| Epoch order is derived from `(seed, epoch)` | Shuffle state never has to be checkpointed; any worker can reconstruct any epoch. |
+| `Cursor` carries the topology it was written under | Resuming under a different `world_size` raises `ReshardError` instead of silently skipping rows; `allow_reshard=True` restarts the current epoch. |
+| Empty shards terminate even with `max_epochs=None` | More workers than rows is a config mistake, not an infinite loop. |
+
+**Mixtures.** `MixtureSampler` interleaves several corpora by weight, with
+temperature (`w ** (1/T)`: `T > 1` flattens a corpus that would otherwise be 95%
+one source, `T == 0` collapses to the heaviest) and an explicit
+`ExhaustionPolicy` — `cycle` (upsample the small corpus), `drain` (renormalize
+onto what is left) or `stop`. `realized_proportions()` reports what was actually
+emitted, because the gap between intended and realized mixture is where
+"why is the model so English-heavy?" lives.
+
+## 6. Checkpoint retention (`training/retention.py`)
+
+Keep-last-N alone throws away the only good checkpoint when a run diverges at
+the end. The policy is a **union** of rules, so adding one can never delete what
+the previous policy protected:
+
+```python
+from tinker_finetune.training import RetentionPolicy
+CheckpointManager(root, job_id, retention=RetentionPolicy(
+    keep_last=3, keep_best=1, keep_every=1000, metric="eval_loss", mode="min",
+))
+```
+
+- `keep_last` — what a rollback needs; `protect_final` never deletes the newest.
+- `keep_best` — best recorded metric; ties break toward the **later** step, and
+  `NaN`/`inf`/missing metrics can never win.
+- `keep_every` — a coarse ladder of steps so a bad run can be bisected.
+- `min_age_steps` — never GC a checkpoint younger than this many steps.
+
+`plan_retention()` decides, `apply_retention()` executes — so a policy change can
+be previewed with `dry_run=True` against a live run. The manifest is rewritten
+through a temp file plus `os.replace` (readers see the old or the new file, never
+half of one), checkpoints that vanished from disk are pruned rather than raising,
+a delete that fails is logged and skipped, and a policy that would erase every
+checkpoint is refused. Retention must never be the thing that kills a run.
+
+## 7. Distribution drift (`data/drift.py`)
+
+Validation asks "is this dataset well-formed?"; drift asks "is it the same
+*shape* as the data this model was tuned on?" A corpus refresh whose answers all
+start with "Sure! Here's" trains and evaluates cleanly while changing the model.
+
+```bash
+tinker-finetune drift data/train.v1.jsonl data/train.v2.jsonl --fail-on warning
+```
+
+```http
+GET /v1/datasets/drift?baseline_path=data/train.v1.jsonl&path=data/train.v2.jsonl
+```
+
+Per feature — prompt length, answer length, turn count, answer prefix,
+vocabulary — the report gives **PSI** (0.1 / 0.25 are the usual action
+thresholds), **Jensen-Shannon divergence** (bounded, safe on disjoint supports
+where KL is infinite) and the **KS** statistic, graded onto the same
+`info`/`warning`/`error` scale as validation.
+
+Edge cases are handled rather than raised: bins come from the baseline's
+quantiles and are capped at its distinct-value count (over-binning manufactures
+empty bins and fake drift), empty bins are epsilon-smoothed so PSI stays finite,
+a constant baseline still detects a candidate that moves off it, samples under
+30 rows are downgraded to "indicative only", and an empty corpus is reported as
+an error instead of a `ZeroDivisionError`.

@@ -140,6 +140,55 @@ def validate(
 
 
 @app.command()
+def drift(
+    baseline: Path = typer.Argument(..., help="The corpus the model was tuned on (JSONL)."),
+    candidate: Path = typer.Argument(..., help="The refreshed corpus to compare against it (JSONL)."),
+    bins: int = typer.Option(10, help="Quantile bins per numeric feature."),
+    top_k: int = typer.Option(50, help="Vocabulary/prefix terms compared before 'other'."),
+    fail_on: str = typer.Option("error", help="Exit non-zero at this severity or above: info|warning|error."),
+    json_out: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+):
+    """Compare two corpora for distribution drift before retraining on the new one."""
+    import json as _json
+
+    from tinker_finetune.data.datasets import load_chat_dataset
+    from tinker_finetune.data.drift import compare_datasets
+    from tinker_finetune.data.validation import Severity
+
+    report = compare_datasets(
+        load_chat_dataset(baseline),
+        load_chat_dataset(candidate),
+        num_bins=bins,
+        top_k=top_k,
+    )
+
+    if json_out:
+        console.print_json(_json.dumps(report.to_dict()))
+    else:
+        table = Table(title=f"Drift: {baseline} -> {candidate}")
+        for column in ("severity", "feature", "psi", "jsd", "ks", "detail"):
+            table.add_column(column, justify="right" if column in ("psi", "jsd", "ks") else "left")
+        for f in report.features:
+            colour = {"error": "red", "warning": "yellow", "info": "cyan"}[f.severity.value]
+            table.add_row(
+                f"[{colour}]{f.severity.value}[/{colour}]",
+                f.feature,
+                f"{f.psi:.3f}",
+                f"{f.jsd:.3f}",
+                "-" if f.ks is None else f"{f.ks:.3f}",
+                f.detail,
+            )
+        console.print(table)
+        for note in report.notes:
+            console.print(f"[yellow]note[/yellow] {note}")
+
+    order = {Severity.info: 0, Severity.warning: 1, Severity.error: 2}
+    if order[report.severity] >= order[Severity(fail_on)]:
+        console.print(f"[red]drift {report.severity.value} >= --fail-on {fail_on}[/red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def sft(
     base_model: str = typer.Option(..., "--base-model", "-m"),
     train: Path = typer.Option(..., "--train", "-t", help="Train JSONL path."),

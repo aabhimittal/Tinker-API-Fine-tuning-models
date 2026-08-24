@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from tinker_finetune.api.schemas import DatasetStats, ValidationReportResponse
+from tinker_finetune.api.schemas import DatasetStats, DriftReportResponse, ValidationReportResponse
 from tinker_finetune.config import get_settings
 from tinker_finetune.data.datasets import load_chat_dataset
+from tinker_finetune.data.drift import compare_datasets
 from tinker_finetune.data.templating import build_supervised_datum
 from tinker_finetune.data.tokenization import build_tokenizer
 from tinker_finetune.data.validation import validate_dataset
@@ -79,3 +80,21 @@ def validate(
         eval_examples=evals,
     )
     return ValidationReportResponse(**report.to_dict())
+
+
+@router.get("/drift", response_model=DriftReportResponse)
+def drift(path: str, baseline_path: str, num_bins: int = 10, top_k: int = 50) -> DriftReportResponse:
+    """Compare a refreshed corpus against the one a model was tuned on.
+
+    Answers the question validation cannot: the new data is well-formed, but is
+    it the *same shape*? Length, structure, vocabulary and answer-prefix drift
+    are graded on the same info/warning/error scale.
+    """
+    try:
+        baseline = load_chat_dataset(baseline_path)
+        candidate = load_chat_dataset(path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    report = compare_datasets(baseline, candidate, num_bins=num_bins, top_k=top_k)
+    return DriftReportResponse(**report.to_dict())
